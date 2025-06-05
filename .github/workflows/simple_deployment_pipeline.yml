@@ -6,10 +6,15 @@ on:
       - main
   pull_request:
     branches: [main]
-    types: [opened, synchronize]
+    types: [opened, synchronize, closed]
 
 env:
-  SHOULD_TAG_AND_DEPLOY: ${{ github.event_name == 'push' && github.ref_name == 'main' && !contains(github.event.commits.*.message, '#skip') }}
+  SHOULD_TAG_AND_DEPLOY: >-
+    ${{ 
+      (github.event.pull_request.merged == true 
+      || (github.ref_name == 'main' && github.event_name == 'push')) 
+      && !contains(github.event.commits.*.message, '#skip') 
+    }}
 
 jobs:
   simple_deployment_pipeline:
@@ -43,7 +48,13 @@ jobs:
   tag_release:
     needs: [simple_deployment_pipeline]
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: "0"
       - name: Bump and tag version number
         uses: anothrNick/github-tag-action@1.73.0
         if: ${{ env.SHOULD_TAG_AND_DEPLOY == true }}
