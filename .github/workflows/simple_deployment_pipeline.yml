@@ -36,3 +36,23 @@ jobs:
       - name: Trigger deployment
         if: ${{ github.event_name == 'push' }}
         run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+  tag_release:
+    needs: [simple_deployment_pipeline]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Bump and tag version number
+        uses: anothrNick/github-tag-action
+        if: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+
+  a_test_job:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: echo
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+          COMMIT_MESSAGES: ${{ toJson(github.event.commits.*.message) }}
+        run: echo "$GITHUB_CONTEXT \n $COMMIT_MESSAGES"
