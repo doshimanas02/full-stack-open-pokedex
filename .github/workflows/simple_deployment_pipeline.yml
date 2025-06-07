@@ -20,6 +20,8 @@ env:
 jobs:
   test:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,13 +42,16 @@ jobs:
         if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
         with:
           name: production-build
-          path: dist/
+          path: dist
           retention-days: 1
 
   deploy:
     needs: [test]
     runs-on: ubuntu-22.04
     steps:
+      - name: Check deploy flag
+        if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
+        run: echo "Deployment started"
       - run: sudo apt-get install -y jq
       - name: Download production build
         uses: actions/download-artifact@v4
@@ -54,7 +59,6 @@ jobs:
           name: production-build
           path: dist
       - name: Trigger deployment
-        if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
         run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
 
   tag_release:
@@ -63,6 +67,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check tag flag
+        if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
+        run: echo "Adding tag to release"
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
