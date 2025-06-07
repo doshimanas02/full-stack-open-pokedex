@@ -10,12 +10,6 @@ on:
 
 env:
   SHOULD_TAG_AND_DEPLOY: >-
-    ${{ 
-      ((github.event_name == 'pull_request' 
-      && github.event.pull_request.merged == true) 
-      || (github.ref_name == 'main' && github.event_name == 'push')) 
-      && !contains(github.event.commits.*.message, '#skip') 
-    }}
 
 jobs:
   test:
@@ -38,26 +32,25 @@ jobs:
         run: npx playwright install --with-deps chromium firefox
       - name: Run e2e tests
         run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
-        if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
-        with:
-          name: production-build
-          path: dist
-          retention-days: 1
 
   deploy:
     needs: [test]
     runs-on: ubuntu-22.04
+    if: >-
+      ${{ 
+        ((github.event_name == 'pull_request' 
+        && github.event.pull_request.merged == true) 
+        || (github.ref_name == 'main' && github.event_name == 'push')) 
+        && !contains(github.event.commits.*.message, '#skip') 
+      }}
     steps:
-      - name: Check deploy flag
-        if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
-        run: echo "Deployment started"
-      - run: sudo apt-get install -y jq
-      - name: Download production build
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          name: production-build
-          path: dist
+          node-version: 20
+      - run: npm install
+      - name: Create build
+        run: npm run build
       - name: Trigger deployment
         run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
 
@@ -66,10 +59,8 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    if: ${{ needs.deploy.result != 'skipped' }}
     steps:
-      - name: Check tag flag
-        if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
-        run: echo "Adding tag to release"
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
