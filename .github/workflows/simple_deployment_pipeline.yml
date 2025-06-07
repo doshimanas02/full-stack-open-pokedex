@@ -44,6 +44,7 @@ jobs:
           retention-days: 1
 
   deploy:
+    needs: [test]
     runs-on: ubuntu-22.04
     steps:
       - run: sudo apt-get install -y jq
