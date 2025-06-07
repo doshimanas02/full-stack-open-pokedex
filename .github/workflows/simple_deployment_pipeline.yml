@@ -8,17 +8,11 @@ on:
     branches: [main]
     types: [opened, synchronize, closed]
 
-env:
-  SHOULD_TAG_AND_DEPLOY: >-
-    ${{ 
-      (github.event.pull_request.merged == true 
-      || (github.ref_name == 'main' && github.event_name == 'push')) 
-      && !contains(github.event.commits.*.message, '#skip') 
-    }}
-
 jobs:
-  simple_deployment_pipeline:
+  test:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,21 +29,34 @@ jobs:
         run: npx playwright install --with-deps chromium firefox
       - name: Run e2e tests
         run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+
+  deploy:
+    needs: [test]
+    runs-on: ubuntu-22.04
+    if: >-
+      ${{ 
+        ((github.event_name == 'pull_request' 
+        && github.event.pull_request.merged == true) 
+        || (github.ref_name == 'main' && github.event_name == 'push')) 
+        && !contains(github.event.commits.*.message, '#skip') 
+      }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 10
+          node-version: 20
+      - run: npm install
+      - name: Create build
+        run: npm run build
       - name: Trigger deployment
-        if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
         run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
 
   tag_release:
-    needs: [simple_deployment_pipeline]
+    needs: [test, deploy]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    if: ${{ needs.deploy.result != 'skipped' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,7 +64,32 @@ jobs:
           fetch-depth: "0"
       - name: Bump and tag version number
         uses: anothrNick/github-tag-action@1.73.0
-        if: ${{ env.SHOULD_TAG_AND_DEPLOY == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEFAULT_BUMP: patch
+
+  notify_on_discord:
+    if: always()
+    needs: [test, deploy, tag_release]
+    runs-on: ubuntu-22.04
+    steps:
+      - id: status
+        name: Populate status
+        run: |
+          echo "test_status=${{ needs.test.result }}" >> $GITHUB_OUTPUT
+          echo "deploy_status=${{ needs.deploy.result }}" >> $GITHUB_OUTPUT
+          echo "tag_status=${{ needs.tag_release.result }}" >> $GITHUB_OUTPUT
+
+      - name: Discord notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        uses: Ilshidur/action-discord@master
+        with:
+          args: |
+            @doshimanas02
+            *${{ github.actor }}* triggered a ${{ github.event_name }} on **${{ github.repository }}**.
+            **Commit:** [View commit](<https://github.com/${{ github.repository }}/commit/${{ github.sha }}>)  
+            **Status:**
+            🔹 **Tests:** ${{ steps.status.outputs.test_status }}  
+            🔹 **Deployment:** ${{ steps.status.outputs.deploy_status }}  
+            🔹 **Version Tag:** ${{ steps.status.outputs.tag_status }}
